@@ -21,6 +21,7 @@ type AnnotationWithAppearance = PdfTextWidgetAnnotation & {
 
 type Props = {
   pdfUrl?: string;
+  pdfOptions?: string[];
 };
 
 function extractTextWidgets(
@@ -88,7 +89,10 @@ function buildLayouts(
     .filter((v): v is FieldLayout => v !== null);
 }
 
-export function PdfFormViewer({ pdfUrl = "/agreement.pdf" }: Props) {
+export function PdfFormViewer({
+  pdfUrl = "/agreement.pdf",
+  pdfOptions = [],
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fieldRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
@@ -114,6 +118,11 @@ export function PdfFormViewer({ pdfUrl = "/agreement.pdf" }: Props) {
   useEffect(() => {
     setSourceUrl(pdfUrl);
   }, [pdfUrl]);
+
+  useEffect(() => {
+    setFieldValues({});
+    setDownloadError(null);
+  }, [sourceUrl]);
 
   useEffect(() => {
     return () => {
@@ -287,7 +296,8 @@ export function PdfFormViewer({ pdfUrl = "/agreement.pdf" }: Props) {
       outputBytes.set(outBytes);
       const blob = new Blob([outputBytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
-      const baseName = sourceUrl.split("/").pop() || "edited.pdf";
+      const baseName =
+        decodeURIComponent(sourceUrl.split("/").pop() || "edited.pdf");
       const downloadName = baseName.endsWith(".pdf")
         ? baseName.replace(/\.pdf$/i, "-edited.pdf")
         : `${baseName}-edited.pdf`;
@@ -323,9 +333,20 @@ export function PdfFormViewer({ pdfUrl = "/agreement.pdf" }: Props) {
     <div className="flex flex-col gap-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="max-w-56 truncate text-xs text-slate-500">
-            {sourceUrl.replace("/", "")}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">PDF</span>
+            <select
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-indigo-500"
+            >
+              {(pdfOptions.length ? pdfOptions : [pdfUrl]).map((url) => (
+                <option key={url} value={url}>
+                  {decodeURIComponent(url.replace(/^\//, ""))}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="flex min-w-64 items-center gap-3 text-xs text-slate-600">
             <button

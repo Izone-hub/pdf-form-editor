@@ -6,6 +6,8 @@ const PdfFormViewer = lazy(() =>
   })),
 );
 
+const PUBLIC_PDF_OPTIONS = ["/agreement.pdf", "/Test Doc.pdf", "/sample.pdf"];
+
 function App() {
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-7xl flex-col px-6 py-8">
@@ -33,7 +35,10 @@ function App() {
               </p>
             }
           >
-            <PdfFormViewer pdfUrl="/agreement.pdf" />
+            <PdfFormViewer
+              pdfUrl="/agreement.pdf"
+              pdfOptions={PUBLIC_PDF_OPTIONS}
+            />
           </Suspense>
         </section>
       </main>
