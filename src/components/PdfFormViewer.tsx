@@ -313,7 +313,8 @@ export function PdfFormViewer({
           const nextField = fieldRefs.current[nextIndex];
           if (!nextField) return;
           nextField.focus();
-          nextField.setSelectionRange(0, 0, "forward");
+        const pos = nextField.value.length;
+        nextField.setSelectionRange(pos, pos, "forward");
         });
       }
 
