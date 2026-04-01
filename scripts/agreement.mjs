@@ -63,7 +63,7 @@ drawLabel(
 
 // Line 2: Party A
 drawLabel("Party A (Company):", 80, 680);
-addTextField("party_a_company", 220, 670, 300, 20);
+addTextField("party_a_company", 219, 670, 301, 20);
 
 // Line 3: Party B
 drawLabel("Party B (Client):", 80, 650);
@@ -84,47 +84,55 @@ drawLabel(
 addTextField("addr_line1", 80, 535, 450, 18);
 addTextField("addr_line2", 80, 512, 450, 18);
 addTextField("addr_line3", 80, 489, 450, 18);
-addTextField("scope_notes", 80, 452, 450, 32, { multiline: true });
 
 // Section 2: Payment Terms
-drawLabel("2. Payment Terms", 80, 430, titleFont, 14);
+drawLabel("2. Payment Terms", 80, 470, titleFont, 14);
 
-drawLabel("Total Amount:", 80, 415);
-addTextField("total_amount", 200, 407, 150, 20);
+drawLabel("Total Amount:", 80, 445);
+addTextField("total_amount", 200, 437, 150, 20);
 
-drawLabel("Payment Due Date:", 80, 390);
-addTextField("payment_due_date", 200, 382, 150, 20);
+drawLabel("Payment Due Date:", 80, 420);
+addTextField("payment_due_date", 200, 412, 150, 20);
 
 // Section 3: Duration
-drawLabel("3. Duration", 80, 360, titleFont, 14);
+drawLabel("3. Duration", 80, 395, titleFont, 14);
 
-drawLabel("Start Date:", 80, 344);
-addTextField("start_date", 170, 335, 140, 20);
+drawLabel("Start Date:", 80, 374);
+addTextField("start_date", 170, 365, 140, 20);
 
-drawLabel("End Date:", 80, 320);
-addTextField("end_date", 170, 312, 140, 20);
+drawLabel("End Date:", 80, 350);
+addTextField("end_date", 170, 342, 140, 20);
 
 // Section 4: Terms and Conditions
-drawLabel("4. Terms and Conditions", 80, 285, titleFont, 14);
+drawLabel("4. Terms and Conditions", 80, 315, titleFont, 14);
 drawLabel(
   "Both parties agree to the terms stated in this agreement. Additional conditions may be written below:",
   80,
-  270,
+  300,
+  bodyFont,
+  12,
 );
 
-addTextField("terms_notes", 80, 200, 450, 56, { multiline: true });
+addTextField("terms_notes", 80, 220, 450, 56, { multiline: true });
 
 // Section: Signatures
-drawLabel("Signatures", 80, 172, titleFont, 14);
+drawLabel("Signatures", 80, 202, titleFont, 14);
 
 // Party A Signature
-drawLabel("Party A Signature:", 80, 145);
-addTextField("party_a_signature", 220, 135, 200, 20);
+drawLabel("Party A Signature:", 90, 175);
+addTextField("party_a_signature", 90, 135, 200, 30);
 
 // Party B Signature
-drawLabel("Party B Signature:", 80, 115);
-addTextField("party_b_signature", 220, 105, 200, 20);
+drawLabel("Party B Signature:", 350, 175);
+addTextField("party_b_signature", 350, 135, 200, 30);
 
+drawLabel(
+  "This Agreement is made with iZONE Technologies as demo",
+  90,
+  18,
+  titleFont,
+  14,
+);
 // Save and output
 form.updateFieldAppearances(bodyFont);
 const pdfBytes = await pdfDoc.save();
