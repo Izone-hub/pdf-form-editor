@@ -44,7 +44,7 @@ function App() {
       </main>
 
       <footer className="mt-8 border-t border-slate-200 pt-5 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-        <span>Development: Vite · React · TypeScript · PDF.js · Tailwind</span>
+        created by <span>iZONE Technologies</span>
       </footer>
     </div>
   );

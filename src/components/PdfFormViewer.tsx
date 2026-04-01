@@ -2,7 +2,10 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import * as Slider from "@radix-ui/react-slider";
 import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from "pdfjs-dist";
 import { PDFDocument as PDFLibDocument } from "pdf-lib";
-import { reflowTextAcrossFields, type LinkedFieldBox } from "../lib/layoutEngine";
+import {
+  reflowTextAcrossFields,
+  type LinkedFieldBox,
+} from "../lib/layoutEngine";
 import { pdfjsLib } from "../lib/pdf";
 import type {
   FieldLayout,
@@ -10,7 +13,7 @@ import type {
 } from "../types/annotations";
 
 const FALLBACK_FONT =
-  '400 14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  '400 14px "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Courier New", monospace';
 
 type AnnotationWithAppearance = PdfTextWidgetAnnotation & {
   defaultAppearanceData?: {
@@ -58,7 +61,7 @@ function fontFromAnnotation(a?: AnnotationWithAppearance): string {
     10,
     Math.round(a?.defaultAppearanceData?.fontSize ?? 14),
   );
-  return `400 ${size}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+  return `400 ${size}px "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Courier New", monospace`;
 }
 
 function scaleFontSpec(font: string, scale: number): string {
@@ -89,6 +92,34 @@ function buildLayouts(
     .filter((v): v is FieldLayout => v !== null);
 }
 
+function estimateFieldCapacity(layout: FieldLayout, font: string): number {
+  const box: LinkedFieldBox = {
+    fieldName: layout.fieldName,
+    width: layout.width,
+    height: layout.height,
+  };
+  const fits = (count: number): boolean => {
+    const text = "M".repeat(count);
+    const split = reflowTextAcrossFields(
+      text,
+      [box, { fieldName: "__overflow__", width: 1200, height: 1200 }],
+      font,
+    );
+    return (split.fields[1]?.text ?? "").length === 0;
+  };
+
+  let low = 0;
+  let high = 1;
+  while (fits(high)) high *= 2;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (fits(mid)) low = mid;
+    else high = mid - 1;
+  }
+  // Keep one-character safety buffer to avoid edge clipping.
+  return Math.max(0, low - 1);
+}
+
 export function PdfFormViewer({
   pdfUrl = "/agreement.pdf",
   pdfOptions = [],
@@ -113,6 +144,16 @@ export function PdfFormViewer({
   const zoomFontSpec = useMemo(
     () => scaleFontSpec(fontSpec, scale),
     [fontSpec, scale],
+  );
+  const fieldCapacities = useMemo(
+    () =>
+      Object.fromEntries(
+        layouts.map((layout) => [
+          layout.fieldName,
+          estimateFieldCapacity(layout, zoomFontSpec),
+        ]),
+      ),
+    [layouts, zoomFontSpec],
   );
 
   useEffect(() => {
@@ -238,7 +279,7 @@ export function PdfFormViewer({
           width: layout.width,
           height: layout.height,
         };
-        const existing = i === index ? "" : next[layout.fieldName] ?? "";
+        const existing = i === index ? "" : (next[layout.fieldName] ?? "");
         const combined = `${carry}${existing}`;
         const split = reflowTextAcrossFields(
           combined,
@@ -251,9 +292,18 @@ export function PdfFormViewer({
         );
         const fits = split.fields[0]?.text ?? "";
         const overflow = split.fields[1]?.text ?? "";
-        next[layout.fieldName] = fits;
-        if (i === index && atTail && overflow.length > 0) shouldFocusNext = true;
-        carry = overflow;
+        const capacity =
+          fieldCapacities[layout.fieldName] ?? Number.MAX_SAFE_INTEGER;
+        const constrained = fits.slice(0, capacity);
+        const overflowFromCap = fits.slice(capacity);
+        next[layout.fieldName] = constrained;
+        if (
+          i === index &&
+          atTail &&
+          (overflow.length > 0 || overflowFromCap.length > 0)
+        )
+          shouldFocusNext = true;
+        carry = `${overflowFromCap}${overflow}`;
         if (!carry) break;
       }
 
@@ -263,8 +313,7 @@ export function PdfFormViewer({
           const nextField = fieldRefs.current[nextIndex];
           if (!nextField) return;
           nextField.focus();
-          const pos = nextField.value.length;
-          nextField.setSelectionRange(pos, pos, "forward");
+          nextField.setSelectionRange(0, 0, "forward");
         });
       }
 
@@ -296,8 +345,9 @@ export function PdfFormViewer({
       outputBytes.set(outBytes);
       const blob = new Blob([outputBytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
-      const baseName =
-        decodeURIComponent(sourceUrl.split("/").pop() || "edited.pdf");
+      const baseName = decodeURIComponent(
+        sourceUrl.split("/").pop() || "edited.pdf",
+      );
       const downloadName = baseName.endsWith(".pdf")
         ? baseName.replace(/\.pdf$/i, "-edited.pdf")
         : `${baseName}-edited.pdf`;
@@ -311,7 +361,9 @@ export function PdfFormViewer({
       URL.revokeObjectURL(url);
     } catch (error) {
       setDownloadError(
-        error instanceof Error ? error.message : "Failed to download edited PDF.",
+        error instanceof Error
+          ? error.message
+          : "Failed to download edited PDF.",
       );
     } finally {
       setIsDownloading(false);
@@ -412,12 +464,33 @@ export function PdfFormViewer({
                       event.currentTarget,
                     )
                   }
+                  onKeyDown={(event) => {
+                    if (event.key !== "Backspace") return;
+                    const el = event.currentTarget;
+                    const start = el.selectionStart ?? 0;
+                    const end = el.selectionEnd ?? start;
+                    if (start !== 0 || end !== 0 || index === 0) return;
+                    event.preventDefault();
+                    const prevIndex = index - 1;
+                    const prevField = fieldRefs.current[prevIndex];
+                    if (!prevField) return;
+                    prevField.focus();
+                    const pos = prevField.value.length;
+                    prevField.setSelectionRange(pos, pos, "backward");
+                  }}
                   className="h-full w-full resize-none overflow-hidden rounded-md border-none bg-transparent px-2 py-1 text-slate-900 outline-none"
-                style={{ font: zoomFontSpec, lineHeight: 1.25 }}
+                  style={{
+                    font: zoomFontSpec,
+                    lineHeight: 1.25,
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                    wordBreak: "break-word",
+                  }}
                   rows={1}
                   spellCheck={false}
                   aria-label={`${layout.fieldName}, text field`}
                   aria-describedby={`${formGroupId}-desc`}
+                  title={`Capacity: ${fieldCapacities[layout.fieldName] ?? 0} chars`}
                 />
               </div>
             );
