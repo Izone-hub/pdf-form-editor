@@ -120,6 +120,88 @@ function estimateFieldCapacity(layout: FieldLayout, font: string): number {
   return Math.max(0, low - 1);
 }
 
+function buildAdjacentInputChains(
+  layouts: FieldLayout[],
+  capacities: Record<string, number>,
+): number[][] {
+  const chains: number[][] = [];
+  const rowTolerance = 8;
+  const horizontalMaxGap = 36;
+  const horizontalMinOverlap = -4;
+  const heightTolerance = 6;
+  const verticalGapTolerance = 18;
+  const leftTolerance = 0;
+  const widthTolerance = 0;
+  const verticalHeightTolerance = 14;
+
+  const isInputLike = (layout: FieldLayout): boolean => {
+    const capacity = capacities[layout.fieldName] ?? 0;
+    return layout.width >= 72 || capacity >= 12;
+  };
+
+  const isWideTextLike = (layout: FieldLayout): boolean => {
+    const capacity = capacities[layout.fieldName] ?? 0;
+    return layout.width >= 220 || capacity >= 30;
+  };
+
+  const canFlowHorizontally = (
+    current: FieldLayout,
+    next: FieldLayout,
+    currentIsInputLike: boolean,
+    nextIsInputLike: boolean,
+  ): boolean => {
+    if (!currentIsInputLike || !nextIsInputLike) return false;
+    if (Math.abs(current.top - next.top) > rowTolerance) return false;
+    if (Math.abs(current.height - next.height) > heightTolerance) return false;
+    const gap = next.left - (current.left + current.width);
+    return gap >= horizontalMinOverlap && gap <= horizontalMaxGap;
+  };
+
+  const canFlowVertically = (
+    current: FieldLayout,
+    next: FieldLayout,
+    currentIsWideTextLike: boolean,
+    nextIsWideTextLike: boolean,
+  ): boolean => {
+    if (!currentIsWideTextLike || !nextIsWideTextLike) return false;
+    if (Math.abs(current.left - next.left) > leftTolerance) return false;
+    if (Math.abs(current.width - next.width) > widthTolerance) return false;
+    if (Math.abs(current.height - next.height) > verticalHeightTolerance)
+      return false;
+    const verticalGap = next.top - (current.top + current.height);
+    return verticalGap >= -2 && verticalGap <= verticalGapTolerance;
+  };
+
+  let cursor = 0;
+  while (cursor < layouts.length) {
+    const chain = [cursor];
+    let nextIndex = cursor + 1;
+    while (nextIndex < layouts.length) {
+      const prev = layouts[nextIndex - 1];
+      const candidate = layouts[nextIndex];
+      const shouldFlowHorizontal = canFlowHorizontally(
+        prev,
+        candidate,
+        isInputLike(prev),
+        isInputLike(candidate),
+      );
+      const shouldFlowVertical = canFlowVertically(
+        prev,
+        candidate,
+        isWideTextLike(prev),
+        isWideTextLike(candidate),
+      );
+      if (!shouldFlowHorizontal && !shouldFlowVertical) break;
+      chain.push(nextIndex);
+      nextIndex += 1;
+    }
+    chains.push(chain);
+    cursor = nextIndex;
+  }
+
+  return chains;
+}
+
 export function PdfFormViewer({
   pdfUrl = "/agreement.pdf",
   pdfOptions = [],
@@ -155,6 +237,17 @@ export function PdfFormViewer({
       ),
     [layouts, zoomFontSpec],
   );
+  const fieldFlowChains = useMemo(
+    () => buildAdjacentInputChains(layouts, fieldCapacities),
+    [layouts, fieldCapacities],
+  );
+  const chainByFieldIndex = useMemo(() => {
+    const map = new Map<number, number[]>();
+    for (const chain of fieldFlowChains) {
+      for (const index of chain) map.set(index, chain);
+    }
+    return map;
+  }, [fieldFlowChains]);
 
   useEffect(() => {
     setSourceUrl(pdfUrl);
@@ -269,10 +362,18 @@ export function PdfFormViewer({
 
     setFieldValues((prev) => {
       const next = { ...prev };
+      const activeChain = chainByFieldIndex.get(index) ?? [index];
+      const chainStart = Math.max(0, activeChain.indexOf(index));
       let carry = value;
       let shouldFocusNext = false;
+      let nextChainFieldIndex: number | null = null;
 
-      for (let i = index; i < layouts.length; i += 1) {
+      for (
+        let chainPos = chainStart;
+        chainPos < activeChain.length;
+        chainPos += 1
+      ) {
+        const i = activeChain[chainPos];
         const layout = layouts[i];
         const box: LinkedFieldBox = {
           fieldName: layout.fieldName,
@@ -298,23 +399,24 @@ export function PdfFormViewer({
         const overflowFromCap = fits.slice(capacity);
         next[layout.fieldName] = constrained;
         if (
-          i === index &&
+          chainPos === chainStart &&
           atTail &&
           (overflow.length > 0 || overflowFromCap.length > 0)
-        )
+        ) {
           shouldFocusNext = true;
+          nextChainFieldIndex = activeChain[chainPos + 1] ?? null;
+        }
         carry = `${overflowFromCap}${overflow}`;
         if (!carry) break;
       }
 
-      if (shouldFocusNext && index + 1 < layouts.length) {
-        const nextIndex = index + 1;
+      if (shouldFocusNext && nextChainFieldIndex !== null) {
         queueMicrotask(() => {
-          const nextField = fieldRefs.current[nextIndex];
+          const nextField = fieldRefs.current[nextChainFieldIndex];
           if (!nextField) return;
           nextField.focus();
-        const pos = nextField.value.length;
-        nextField.setSelectionRange(pos, pos, "forward");
+          const pos = nextField.value.length;
+          nextField.setSelectionRange(pos, pos, "forward");
         });
       }
 
@@ -471,8 +573,11 @@ export function PdfFormViewer({
                     const start = el.selectionStart ?? 0;
                     const end = el.selectionEnd ?? start;
                     if (start !== 0 || end !== 0 || index === 0) return;
+                    const activeChain = chainByFieldIndex.get(index) ?? [index];
+                    const chainPos = activeChain.indexOf(index);
+                    if (chainPos <= 0) return;
                     event.preventDefault();
-                    const prevIndex = index - 1;
+                    const prevIndex = activeChain[chainPos - 1] ?? index - 1;
                     const prevField = fieldRefs.current[prevIndex];
                     if (!prevField) return;
                     prevField.focus();
