@@ -15,6 +15,9 @@ import type {
 const FALLBACK_FONT =
   '400 14px "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Courier New", monospace';
 
+/** Viewport px: fields shorter than this are treated as one-line (horizontal scroll). */
+const SINGLE_LINE_FIELD_MAX_HEIGHT_PX = 48;
+
 type AnnotationWithAppearance = PdfTextWidgetAnnotation & {
   defaultAppearanceData?: {
     fontName?: string;
@@ -118,6 +121,19 @@ function estimateFieldCapacity(layout: FieldLayout, font: string): number {
   }
   // Keep one-character safety buffer to avoid edge clipping.
   return Math.max(0, low - 1);
+}
+
+/** LTR line: keep the caret / latest typed characters in view (overflow clipped left). */
+function syncSingleLineFieldScroll(el: HTMLTextAreaElement) {
+  requestAnimationFrame(() => {
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
+    const len = el.value.length;
+    if (start !== end) return;
+    if (start === len) {
+      el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+    }
+  });
 }
 
 function buildAdjacentInputChains(
@@ -363,6 +379,20 @@ export function PdfFormViewer({
     setFieldValues((prev) => {
       const next = { ...prev };
       const activeChain = chainByFieldIndex.get(index) ?? [index];
+
+      if (activeChain.length === 1) {
+        const layout = layouts[index];
+        if (!layout) return prev;
+        if (layout.height <= SINGLE_LINE_FIELD_MAX_HEIGHT_PX) {
+          next[layout.fieldName] = value.replace(/\r?\n/g, "");
+        } else {
+          const cap =
+            fieldCapacities[layout.fieldName] ?? Number.MAX_SAFE_INTEGER;
+          next[layout.fieldName] = value.slice(0, cap);
+        }
+        return next;
+      }
+
       const chainStart = Math.max(0, activeChain.indexOf(index));
       let carry = value;
       let shouldFocusNext = false;
@@ -543,6 +573,11 @@ export function PdfFormViewer({
         >
           <canvas ref={canvasRef} className="block align-top" />
           {layouts.map((layout, index) => {
+            const chain = chainByFieldIndex.get(index) ?? [index];
+            const isStandaloneField = chain.length === 1;
+            const isStandaloneSingleLine =
+              isStandaloneField &&
+              layout.height <= SINGLE_LINE_FIELD_MAX_HEIGHT_PX;
             return (
               <div
                 key={layout.fieldName}
@@ -567,7 +602,19 @@ export function PdfFormViewer({
                       event.currentTarget,
                     )
                   }
+                  onInput={(event) => {
+                    if (!isStandaloneSingleLine) return;
+                    syncSingleLineFieldScroll(event.currentTarget);
+                  }}
+                  onSelect={(event) => {
+                    if (!isStandaloneSingleLine) return;
+                    syncSingleLineFieldScroll(event.currentTarget);
+                  }}
                   onKeyDown={(event) => {
+                    if (event.key === "Enter" && isStandaloneSingleLine) {
+                      event.preventDefault();
+                      return;
+                    }
                     if (event.key !== "Backspace") return;
                     const el = event.currentTarget;
                     const start = el.selectionStart ?? 0;
@@ -584,19 +631,35 @@ export function PdfFormViewer({
                     const pos = prevField.value.length;
                     prevField.setSelectionRange(pos, pos, "backward");
                   }}
-                  className="h-full w-full resize-none overflow-hidden rounded-md border-none bg-transparent px-2 py-1 text-slate-900 outline-none"
-                  style={{
-                    font: zoomFontSpec,
-                    lineHeight: 1.25,
-                    whiteSpace: "pre-wrap",
-                    overflowWrap: "anywhere",
-                    wordBreak: "break-word",
-                  }}
+                  className={
+                    isStandaloneSingleLine
+                      ? "h-full w-full resize-none overflow-x-auto overflow-y-hidden rounded-md border-none bg-transparent px-2 py-1 text-left text-slate-900 outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                      : "h-full w-full resize-none overflow-hidden rounded-md border-none bg-transparent px-2 py-1 text-slate-900 outline-none"
+                  }
+                  style={
+                    isStandaloneSingleLine
+                      ? {
+                          font: zoomFontSpec,
+                          lineHeight: 1.25,
+                          whiteSpace: "nowrap",
+                        }
+                      : {
+                          font: zoomFontSpec,
+                          lineHeight: 1.25,
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                          wordBreak: "break-word",
+                        }
+                  }
                   rows={1}
                   spellCheck={false}
                   aria-label={`${layout.fieldName}, text field`}
                   aria-describedby={`${formGroupId}-desc`}
-                  title={`Capacity: ${fieldCapacities[layout.fieldName] ?? 0} chars`}
+                  title={
+                    isStandaloneSingleLine
+                      ? "Types left to right; long lines stay scrolled to show what you are typing. Full text is saved when you download."
+                      : `Capacity: ${fieldCapacities[layout.fieldName] ?? 0} chars`
+                  }
                 />
               </div>
             );
